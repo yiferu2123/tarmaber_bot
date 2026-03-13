@@ -1,8 +1,8 @@
 """
-🇪🇹 Amharic Hate Speech Detection — Telegram Bot (Cloud Version)
+🇪🇹 Amharic Hate Speech Detection — Telegram Bot (Railway Version)
 Bot: @tarmaber_bot
 Hosting: Railway.app (24/7 online)
-Model:   HuggingFace Hub (private repo)
+Brain:   HuggingFace Spaces (API)
 
 Strike System:
   Strike 1  →  Delete + Warn
@@ -13,34 +13,23 @@ Strike System:
 import os
 import json
 import logging
-import torch
-import warnings
+import requests
 from datetime import datetime, timedelta
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from telegram import Update, ChatPermissions
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-
-# ── FIX FOR RAILWAY DOWNLOAD TIMEOUTS & WARNING SPAM ──
-os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "300"
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-warnings.filterwarnings("ignore", category=FutureWarning)
-# ──────────────────────────────────────────────────────
 
 # ════════════════════════════════════════════
 #  CONFIGURATION  (loaded from env variables)
 # ════════════════════════════════════════════
-BOT_TOKEN   = os.environ.get("BOT_TOKEN", "").strip()
-HF_REPO_ID  = os.environ.get("HF_REPO_ID", "").strip()   # e.g. "yourname/amharic-hate-speech"
-HF_TOKEN    = os.environ.get("HF_TOKEN", "").strip()      # HuggingFace read token
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+API_URL   = os.environ.get("API_URL", "https://YIFER-amharic-bot.hf.space/predict").strip()
 
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.70"))
 STRIKES_FILE = "user_strikes.json"
 
-# ── Startup validation ────────────────────────────────────────
-missing = [k for k, v in {"BOT_TOKEN": BOT_TOKEN, "HF_REPO_ID": HF_REPO_ID, "HF_TOKEN": HF_TOKEN}.items() if not v]
-if missing:
-    raise SystemExit(f"❌  Missing required environment variables: {', '.join(missing)}\n"
-                     f"    Set them in Railway → Variables tab.")
+if not BOT_TOKEN:
+    raise SystemExit(f"❌  Missing required environment variable: BOT_TOKEN\n"
+                     f"    Set it in Railway → Variables tab.")
 
 # ════════════════════════════════════════════
 #  LOGGING
@@ -50,20 +39,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
-
-# ════════════════════════════════════════════
-#  LOAD MODEL FROM HUGGINGFACE HUB
-# ════════════════════════════════════════════
-logger.info(f"⏳  Downloading model from HuggingFace: {HF_REPO_ID} …")
-tokenizer = AutoTokenizer.from_pretrained(HF_REPO_ID, token=HF_TOKEN)
-model     = AutoModelForSequenceClassification.from_pretrained(HF_REPO_ID, token=HF_TOKEN)
-model.eval()
-
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-model.to(DEVICE)
-logger.info(f"✅  Model loaded on {DEVICE.upper()}.")
-
-LABEL_MAP = {0: "መልካም", 1: "ጥላቻ"}
 
 # ════════════════════════════════════════════
 #  STRIKE PERSISTENCE
@@ -81,21 +56,20 @@ def save_strikes(strikes: dict):
 user_strikes: dict = load_strikes()
 
 # ════════════════════════════════════════════
-#  MODEL INFERENCE
+#  MODEL INFERENCE (via HuggingFace API)
 # ════════════════════════════════════════════
 def predict(text: str) -> tuple[str, float]:
-    inputs = tokenizer(
-        text,
-        return_tensors="pt",
-        truncation=True,
-        max_length=128,
-        padding=True,
-    ).to(DEVICE)
-    with torch.no_grad():
-        logits = model(**inputs).logits
-    pred_idx   = torch.argmax(logits, dim=-1).item()
-    confidence = torch.softmax(logits, dim=-1)[0][pred_idx].item()
-    return LABEL_MAP[pred_idx], confidence
+    try:
+        response = requests.post(API_URL, json={"text": text}, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        label = "ጥላቻ" if data["is_hate_speech"] else "መልካም"
+        confidence = float(data["confidence"])
+        return label, confidence
+    except Exception as e:
+        logger.error(f"API Error: {e}")
+        return "መልካም", 0.0
 
 # ════════════════════════════════════════════
 #  HELPER
@@ -206,9 +180,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #  ENTRY POINT
 # ════════════════════════════════════════════
 def main():
-    logger.info("🤖  Starting @tarmaber_bot (Cloud Mode) …")
+    logger.info("🤖  Starting @tarmaber_bot (Railway Mode) …")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    logger.info(f"🧠  Connected to Brain: {API_URL}")
     logger.info("🟢  Bot is polling for messages 24/7 …")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
