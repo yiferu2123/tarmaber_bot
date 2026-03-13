@@ -14,10 +14,17 @@ import os
 import json
 import logging
 import torch
+import warnings
 from datetime import datetime, timedelta
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from telegram import Update, ChatPermissions
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+
+# ── FIX FOR RAILWAY DOWNLOAD TIMEOUTS & WARNING SPAM ──
+os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "300"
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+warnings.filterwarnings("ignore", category=FutureWarning)
+# ──────────────────────────────────────────────────────
 
 # ════════════════════════════════════════════
 #  CONFIGURATION  (loaded from env variables)
