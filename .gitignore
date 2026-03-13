@@ -1,0 +1,8 @@
+# Git ignore — never commit secrets or the huge model file!
+.env
+saved_model/
+user_strikes.json
+__pycache__/
+*.pyc
+*.pyo
+*.zip
