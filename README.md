@@ -1,6 +1,6 @@
 ---
 title: Tarmaber Bot - Amharic Hate Speech Detection
-emoji: 🇪🇹
+emoji: 🤖
 colorFrom: green
 colorTo: red
 sdk: docker
