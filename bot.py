@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 import requests
 from telegram import Update, ChatPermissions
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.request import HTTPXRequest
 
 # ════════════════════════════════════════════
 #  CONFIGURATION  (loaded from env variables)
@@ -194,7 +195,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def build_application() -> Application:
     """Build and return the configured PTB Application (no polling started)."""
     logger.info("🤖  Building @tarmaber_bot (Webhook / HuggingFace Mode) …")
-    app = Application.builder().token(BOT_TOKEN).updater(None).build()
+    request = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0, write_timeout=30.0)
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .updater(None)
+        .request(request)
+        .build()
+    )
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info(f"🧠  Brain API: {API_URL}")
     return app

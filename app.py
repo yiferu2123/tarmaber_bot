@@ -53,20 +53,33 @@ ptb_app = build_application()
 WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 FULL_WEBHOOK = WEBHOOK_URL.rstrip("/") + WEBHOOK_PATH
 
+import asyncio
+
 # ════════════════════════════════════════════
 #  FASTAPI LIFESPAN  (startup / shutdown)
 # ════════════════════════════════════════════
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Startup ──────────────────────────────
-    await ptb_app.initialize()
-    await ptb_app.bot.set_webhook(
-        url=FULL_WEBHOOK,
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
-    )
-    logger.info(f"🔗  Webhook registered: {FULL_WEBHOOK}")
-    await ptb_app.start()
+    # ── Startup (with retries for Telegram API cold-start timeouts) ──
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"🔄  Initializing PTB (attempt {attempt}/{max_retries}) …")
+            await ptb_app.initialize()
+            await ptb_app.bot.set_webhook(
+                url=FULL_WEBHOOK,
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+            )
+            logger.info(f"🔗  Webhook registered: {FULL_WEBHOOK}")
+            await ptb_app.start()
+            break
+        except Exception as e:
+            logger.warning(f"⚠️  Attempt {attempt} failed: {e}")
+            if attempt == max_retries:
+                logger.error("❌  All retry attempts failed. Exiting.")
+                raise
+            await asyncio.sleep(5)
     yield
     # ── Shutdown ─────────────────────────────
     await ptb_app.bot.delete_webhook()
