@@ -17,14 +17,15 @@ Required Secrets (Settings → Repository Secrets):
 import os
 import asyncio
 import logging
+import traceback
+import requests as req_lib
 
 import torch
-import httpx
 from fastapi import FastAPI, Request, Response
 from contextlib import asynccontextmanager
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from pydantic import BaseModel
-from telegram import Update, Bot
+from telegram import Update
 
 # ── Bot logic lives in bot.py (same container) ──────────────────────────────
 from bot import build_application, WEBHOOK_URL, BOT_TOKEN
@@ -61,33 +62,46 @@ _bot_initialized = False
 # ════════════════════════════════════════════
 #  REGISTER WEBHOOK (background task)
 # ════════════════════════════════════════════
-async def register_webhook():
-    """Register webhook with Telegram API using raw HTTP (no PTB dependency)."""
-    global _bot_initialized
+def _set_webhook_sync() -> dict:
+    """Synchronous call to Telegram setWebhook using requests library."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-    params = {
+    payload = {
         "url": FULL_WEBHOOK,
         "drop_pending_updates": True,
     }
-    for attempt in range(5):
+    logger.info(f"📡  Calling setWebhook → {url}")
+    logger.info(f"📡  Webhook URL: {FULL_WEBHOOK}")
+    resp = req_lib.post(url, json=payload, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
+
+async def register_webhook():
+    """Register webhook with Telegram API, then initialize PTB."""
+    global _bot_initialized
+    loop = asyncio.get_event_loop()
+
+    for attempt in range(10):
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(url, json=params)
-                data = resp.json()
-                if data.get("ok"):
-                    logger.info(f"🔗  Webhook registered: {FULL_WEBHOOK}")
-                    # Now initialize PTB
-                    await ptb_app.initialize()
-                    await ptb_app.start()
-                    _bot_initialized = True
-                    logger.info("🟢  Bot is ready to receive updates!")
-                    return
-                else:
-                    logger.warning(f"Webhook registration returned: {data}")
+            logger.info(f"🔄  Webhook attempt {attempt+1}/10 …")
+            # Run synchronous requests in thread pool (avoids httpx/async issues)
+            data = await loop.run_in_executor(None, _set_webhook_sync)
+            logger.info(f"📨  Telegram response: {data}")
+
+            if data.get("ok"):
+                logger.info(f"🔗  Webhook registered: {FULL_WEBHOOK}")
+                # Now initialize PTB
+                await ptb_app.initialize()
+                await ptb_app.start()
+                _bot_initialized = True
+                logger.info("🟢  Bot is ready to receive updates!")
+                return
+            else:
+                logger.warning(f"Telegram rejected webhook: {data}")
         except Exception as e:
-            logger.warning(f"⚠️  Webhook attempt {attempt+1}/5 failed: {e}")
-        await asyncio.sleep(5)
-    logger.error("❌  Could not register webhook after 5 attempts.")
+            logger.error(f"⚠️  Attempt {attempt+1}/10 failed: {type(e).__name__}: {e}")
+            logger.error(traceback.format_exc())
+        await asyncio.sleep(10)
+    logger.error("❌  Could not register webhook after 10 attempts.")
 
 # ════════════════════════════════════════════
 #  FASTAPI LIFESPAN  (startup / shutdown)
