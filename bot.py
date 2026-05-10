@@ -1,8 +1,11 @@
 """
-🇪🇹 Amharic Hate Speech Detection — Telegram Bot (Railway Version)
+🇪🇹 Amharic Hate Speech Detection — Telegram Bot (HuggingFace Spaces / Webhook)
 Bot: @tarmaber_bot
-Hosting: Railway.app (24/7 online)
-Brain:   HuggingFace Spaces (API)
+Hosting: HuggingFace Spaces (Docker, port 7860)
+Brain:   Same Space — /predict endpoint (served by FastAPI)
+
+Webhook flow:
+  Telegram → POST /webhook/<BOT_TOKEN> → FastAPI → python-telegram-bot
 
 Strike System:
   Strike 1  →  Delete + Warn
@@ -13,23 +16,33 @@ Strike System:
 import os
 import json
 import logging
-import requests
 from datetime import datetime, timedelta
+
+import requests
 from telegram import Update, ChatPermissions
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 # ════════════════════════════════════════════
 #  CONFIGURATION  (loaded from env variables)
 # ════════════════════════════════════════════
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-API_URL   = os.environ.get("API_URL", "https://YIFER-amharic-bot.hf.space/predict").strip()
+BOT_TOKEN   = os.environ.get("BOT_TOKEN", "").strip()
+API_URL     = os.environ.get("API_URL", "http://localhost:7860/predict").strip()
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()   # e.g. https://YIFER-tarmaber-bot.hf.space
 
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.70"))
 STRIKES_FILE = "user_strikes.json"
 
 if not BOT_TOKEN:
-    raise SystemExit(f"❌  Missing required environment variable: BOT_TOKEN\n"
-                     f"    Set it in Railway → Variables tab.")
+    raise SystemExit(
+        "❌  Missing required environment variable: BOT_TOKEN\n"
+        "    Set it in the HuggingFace Space → Settings → Repository Secrets."
+    )
+if not WEBHOOK_URL:
+    raise SystemExit(
+        "❌  Missing required environment variable: WEBHOOK_URL\n"
+        "    Set it to the full public URL of your HuggingFace Space,\n"
+        "    e.g.  https://YIFER-tarmaber-bot.hf.space"
+    )
 
 # ════════════════════════════════════════════
 #  LOGGING
@@ -56,15 +69,14 @@ def save_strikes(strikes: dict):
 user_strikes: dict = load_strikes()
 
 # ════════════════════════════════════════════
-#  MODEL INFERENCE (via HuggingFace API)
+#  MODEL INFERENCE (via /predict on same Space)
 # ════════════════════════════════════════════
 def predict(text: str) -> tuple[str, float]:
     try:
         response = requests.post(API_URL, json={"text": text}, timeout=15)
         response.raise_for_status()
         data = response.json()
-        
-        label = "ጥላቻ" if data["is_hate_speech"] else "መልካም"
+        label      = "ጥላቻ" if data["is_hate_speech"] else "መልካም"
         confidence = float(data["confidence"])
         return label, confidence
     except Exception as e:
@@ -177,15 +189,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ════════════════════════════════════════════
-#  ENTRY POINT
+#  BUILD THE APPLICATION (shared instance)
 # ════════════════════════════════════════════
-def main():
-    logger.info("🤖  Starting @tarmaber_bot (Railway Mode) …")
-    app = Application.builder().token(BOT_TOKEN).build()
+def build_application() -> Application:
+    """Build and return the configured PTB Application (no polling started)."""
+    logger.info("🤖  Building @tarmaber_bot (Webhook / HuggingFace Mode) …")
+    app = Application.builder().token(BOT_TOKEN).updater(None).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info(f"🧠  Connected to Brain: {API_URL}")
-    logger.info("🟢  Bot is polling for messages 24/7 …")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info(f"🧠  Brain API: {API_URL}")
+    return app
 
+# ════════════════════════════════════════════
+#  ENTRY POINT  (only used for local polling)
+# ════════════════════════════════════════════
 if __name__ == "__main__":
-    main()
+    logger.info("🔄  Running in local POLLING mode (dev/test only) …")
+    local_app = Application.builder().token(BOT_TOKEN).build()
+    local_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    local_app.run_polling(allowed_updates=Update.ALL_TYPES)
