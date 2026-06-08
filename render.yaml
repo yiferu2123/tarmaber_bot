@@ -1,6 +1,6 @@
 services:
-  - type: worker
-    name: amharic-hate-speech-bot
+  - type: web
+    name: tarmaber-bot
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
