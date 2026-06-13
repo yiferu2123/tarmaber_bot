@@ -46,7 +46,7 @@ MODEL_ID = "mekonnena/amharic-hate-speech-classifier"
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN", "")
 
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
+API_URL = f"https://router.huggingface.co/hf-inference/models/{MODEL_ID}"
 headers = {}
 if HF_API_TOKEN:
     headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
